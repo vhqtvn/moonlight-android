@@ -8,6 +8,7 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.FrameLayout;
@@ -59,6 +60,20 @@ public class VirtualController {
 
     private List<VirtualControllerElement> elements = new ArrayList<>();
 
+    int forceW = 0, forceH = 0;
+
+    public void __private_frame_layout_set(FrameLayout new_layout, int w, int h) {
+        removeElements();
+        frame_layout = new_layout;
+        forceW = w;
+        forceH = h;
+        if (w == 0 || h == 0) {
+            refreshLayout();
+        } else {
+            refreshLayout(w, h);
+        }
+    }
+
     public VirtualController(final ControllerHandler controllerHandler, FrameLayout layout, final Context context) {
         this.controllerHandler = controllerHandler;
         this.frame_layout = layout;
@@ -66,7 +81,7 @@ public class VirtualController {
         this.handler = new Handler(Looper.getMainLooper());
 
         buttonConfigure = new Button(context);
-        buttonConfigure.setAlpha(0.25f);
+        buttonConfigure.setAlpha(0.1f);
         buttonConfigure.setFocusable(false);
         buttonConfigure.setBackgroundResource(R.drawable.ic_settings);
         buttonConfigure.setOnClickListener(new View.OnClickListener() {
@@ -74,7 +89,7 @@ public class VirtualController {
             public void onClick(View v) {
                 String message;
 
-                if (currentMode == ControllerMode.Active){
+                if (currentMode == ControllerMode.Active) {
                     currentMode = ControllerMode.MoveButtons;
                     message = "Entering configuration mode (Move buttons)";
                 } else if (currentMode == ControllerMode.MoveButtons) {
@@ -153,18 +168,29 @@ public class VirtualController {
     }
 
     public void refreshLayout() {
+        if (forceW == 0 || forceH == 0) {
+            DisplayMetrics screen = context.getResources().getDisplayMetrics();
+            refreshLayout(screen.widthPixels, screen.heightPixels);
+        } else {
+            refreshLayout(forceW, forceH);
+        }
+    }
+
+    public void refreshLayout(int w, int h) {
         removeElements();
 
-        DisplayMetrics screen = context.getResources().getDisplayMetrics();
+        Log.d("VHVH", "refreshLayout " + w + "x" + h);
 
-        int buttonSize = (int)(screen.heightPixels*0.06f);
+        if (w <= 0 || h <= 0) return;
+
+        int buttonSize = (int) (h * 0.06f);
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(buttonSize, buttonSize);
         params.leftMargin = 15;
         params.topMargin = 15;
         frame_layout.addView(buttonConfigure, params);
 
         // Start with the default layout
-        VirtualControllerConfigurationLoader.createDefaultLayout(this, context);
+        VirtualControllerConfigurationLoader.createDefaultLayout(this, context, w, h);
 
         // Apply user preferences onto the default layout
         VirtualControllerConfigurationLoader.loadFromPreferences(this, context);

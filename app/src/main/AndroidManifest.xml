@@ -48,6 +48,9 @@
         android:enableOnBackInvokedCallback="false"
         android:theme="@style/AppTheme">
 
+        <meta-data android:name="to.dualscreen" android:value="true"/>
+        <meta-data android:name="duosdk.dualScreenAware" android:value="true"/>
+
         <provider
             android:name=".PosterContentProvider"
             android:authorities="poster.${applicationId}"
@@ -125,7 +128,7 @@
                 android:value="com.limelight.PcView" />
         </activity>
         <activity
-            android:name=".Game"
+            android:name="vn.vhn.moonlight.surfaceduo.virtualcontroller.GameSD"
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"
             android:noHistory="true"
             android:supportsPictureInPicture="true"

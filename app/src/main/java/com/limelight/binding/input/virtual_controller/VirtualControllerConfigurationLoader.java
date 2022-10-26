@@ -8,6 +8,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.DisplayMetrics;
+import android.util.Log;
 
 import com.limelight.nvstream.input.ControllerPacket;
 import com.limelight.preferences.PreferenceConfiguration;
@@ -42,26 +43,22 @@ public class VirtualControllerConfigurationLoader {
 
                 if ((direction & DigitalPad.DIGITAL_PAD_DIRECTION_LEFT) != 0) {
                     inputContext.inputMap |= ControllerPacket.LEFT_FLAG;
-                }
-                else {
+                } else {
                     inputContext.inputMap &= ~ControllerPacket.LEFT_FLAG;
                 }
                 if ((direction & DigitalPad.DIGITAL_PAD_DIRECTION_RIGHT) != 0) {
                     inputContext.inputMap |= ControllerPacket.RIGHT_FLAG;
-                }
-                else {
+                } else {
                     inputContext.inputMap &= ~ControllerPacket.RIGHT_FLAG;
                 }
                 if ((direction & DigitalPad.DIGITAL_PAD_DIRECTION_UP) != 0) {
                     inputContext.inputMap |= ControllerPacket.UP_FLAG;
-                }
-                else {
+                } else {
                     inputContext.inputMap &= ~ControllerPacket.UP_FLAG;
                 }
                 if ((direction & DigitalPad.DIGITAL_PAD_DIRECTION_DOWN) != 0) {
                     inputContext.inputMap |= ControllerPacket.DOWN_FLAG;
-                }
-                else {
+                } else {
                     inputContext.inputMap &= ~ControllerPacket.DOWN_FLAG;
                 }
 
@@ -185,21 +182,17 @@ public class VirtualControllerConfigurationLoader {
     private static final int START_BACK_WIDTH = 12;
     private static final int START_BACK_HEIGHT = 7;
 
-    public static void createDefaultLayout(final VirtualController controller, final Context context) {
+    public static void createDefaultLayout(final VirtualController controller, final Context context, int width, int height) {
 
-        DisplayMetrics screen = context.getResources().getDisplayMetrics();
         PreferenceConfiguration config = PreferenceConfiguration.readPreferences(context);
 
         // Displace controls on the right by this amount of pixels to account for different aspect ratios
-        int rightDisplacement = screen.widthPixels - screen.heightPixels * 16 / 9;
-
-        int height = screen.heightPixels;
+        int rightDisplacement = width - height * 16 / 9;
 
         // NOTE: Some of these getPercent() expressions seem like they can be combined
         // into a single call. Due to floating point rounding, this isn't actually possible.
 
-        if (!config.onlyL3R3)
-        {
+        if (!config.onlyL3R3) {
             controller.addElement(createDigitalPad(controller, context),
                     screenScale(DPAD_BASE_X, height),
                     screenScale(DPAD_BASE_Y, height),
@@ -208,9 +201,9 @@ public class VirtualControllerConfigurationLoader {
             );
 
             controller.addElement(createDigitalButton(
-                    VirtualControllerElement.EID_A,
-                    !config.flipFaceButtons ? ControllerPacket.A_FLAG : ControllerPacket.B_FLAG, 0, 1,
-                    !config.flipFaceButtons ? "A" : "B", -1, controller, context),
+                            VirtualControllerElement.EID_A,
+                            !config.flipFaceButtons ? ControllerPacket.A_FLAG : ControllerPacket.B_FLAG, 0, 1,
+                            !config.flipFaceButtons ? "A" : "B", -1, controller, context),
                     screenScale(BUTTON_BASE_X, height) + rightDisplacement,
                     screenScale(BUTTON_BASE_Y + 2 * BUTTON_SIZE, height),
                     screenScale(BUTTON_SIZE, height),
@@ -218,9 +211,9 @@ public class VirtualControllerConfigurationLoader {
             );
 
             controller.addElement(createDigitalButton(
-                    VirtualControllerElement.EID_B,
-                    config.flipFaceButtons ? ControllerPacket.A_FLAG : ControllerPacket.B_FLAG, 0, 1,
-                    config.flipFaceButtons ? "A" : "B", -1, controller, context),
+                            VirtualControllerElement.EID_B,
+                            config.flipFaceButtons ? ControllerPacket.A_FLAG : ControllerPacket.B_FLAG, 0, 1,
+                            config.flipFaceButtons ? "A" : "B", -1, controller, context),
                     screenScale(BUTTON_BASE_X + BUTTON_SIZE, height) + rightDisplacement,
                     screenScale(BUTTON_BASE_Y + BUTTON_SIZE, height),
                     screenScale(BUTTON_SIZE, height),
@@ -228,9 +221,9 @@ public class VirtualControllerConfigurationLoader {
             );
 
             controller.addElement(createDigitalButton(
-                    VirtualControllerElement.EID_X,
-                    !config.flipFaceButtons ? ControllerPacket.X_FLAG : ControllerPacket.Y_FLAG, 0, 1,
-                    !config.flipFaceButtons ? "X" : "Y", -1, controller, context),
+                            VirtualControllerElement.EID_X,
+                            !config.flipFaceButtons ? ControllerPacket.X_FLAG : ControllerPacket.Y_FLAG, 0, 1,
+                            !config.flipFaceButtons ? "X" : "Y", -1, controller, context),
                     screenScale(BUTTON_BASE_X - BUTTON_SIZE, height) + rightDisplacement,
                     screenScale(BUTTON_BASE_Y + BUTTON_SIZE, height),
                     screenScale(BUTTON_SIZE, height),
@@ -238,9 +231,9 @@ public class VirtualControllerConfigurationLoader {
             );
 
             controller.addElement(createDigitalButton(
-                    VirtualControllerElement.EID_Y,
-                    config.flipFaceButtons ? ControllerPacket.X_FLAG : ControllerPacket.Y_FLAG, 0, 1,
-                    config.flipFaceButtons ? "X" : "Y", -1, controller, context),
+                            VirtualControllerElement.EID_Y,
+                            config.flipFaceButtons ? ControllerPacket.X_FLAG : ControllerPacket.Y_FLAG, 0, 1,
+                            config.flipFaceButtons ? "X" : "Y", -1, controller, context),
                     screenScale(BUTTON_BASE_X, height) + rightDisplacement,
                     screenScale(BUTTON_BASE_Y, height),
                     screenScale(BUTTON_SIZE, height),
@@ -248,7 +241,7 @@ public class VirtualControllerConfigurationLoader {
             );
 
             controller.addElement(createLeftTrigger(
-                    1, "LT", -1, controller, context),
+                            1, "LT", -1, controller, context),
                     screenScale(TRIGGER_L_BASE_X, height),
                     screenScale(TRIGGER_BASE_Y, height),
                     screenScale(TRIGGER_WIDTH, height),
@@ -256,7 +249,7 @@ public class VirtualControllerConfigurationLoader {
             );
 
             controller.addElement(createRightTrigger(
-                    1, "RT", -1, controller, context),
+                            1, "RT", -1, controller, context),
                     screenScale(TRIGGER_R_BASE_X + TRIGGER_DISTANCE, height) + rightDisplacement,
                     screenScale(TRIGGER_BASE_Y, height),
                     screenScale(TRIGGER_WIDTH, height),
@@ -264,8 +257,8 @@ public class VirtualControllerConfigurationLoader {
             );
 
             controller.addElement(createDigitalButton(
-                    VirtualControllerElement.EID_LB,
-                    ControllerPacket.LB_FLAG, 0, 1, "LB", -1, controller, context),
+                            VirtualControllerElement.EID_LB,
+                            ControllerPacket.LB_FLAG, 0, 1, "LB", -1, controller, context),
                     screenScale(TRIGGER_L_BASE_X + TRIGGER_DISTANCE, height),
                     screenScale(TRIGGER_BASE_Y, height),
                     screenScale(TRIGGER_WIDTH, height),
@@ -273,8 +266,8 @@ public class VirtualControllerConfigurationLoader {
             );
 
             controller.addElement(createDigitalButton(
-                    VirtualControllerElement.EID_RB,
-                    ControllerPacket.RB_FLAG, 0, 1, "RB", -1, controller, context),
+                            VirtualControllerElement.EID_RB,
+                            ControllerPacket.RB_FLAG, 0, 1, "RB", -1, controller, context),
                     screenScale(TRIGGER_R_BASE_X, height) + rightDisplacement,
                     screenScale(TRIGGER_BASE_Y, height),
                     screenScale(TRIGGER_WIDTH, height),
@@ -296,8 +289,8 @@ public class VirtualControllerConfigurationLoader {
             );
 
             controller.addElement(createDigitalButton(
-                    VirtualControllerElement.EID_BACK,
-                    ControllerPacket.BACK_FLAG, 0, 2, "BACK", -1, controller, context),
+                            VirtualControllerElement.EID_BACK,
+                            ControllerPacket.BACK_FLAG, 0, 2, "BACK", -1, controller, context),
                     screenScale(BACK_X, height),
                     screenScale(START_BACK_Y, height),
                     screenScale(START_BACK_WIDTH, height),
@@ -305,18 +298,17 @@ public class VirtualControllerConfigurationLoader {
             );
 
             controller.addElement(createDigitalButton(
-                    VirtualControllerElement.EID_START,
-                    ControllerPacket.PLAY_FLAG, 0, 3, "START", -1, controller, context),
+                            VirtualControllerElement.EID_START,
+                            ControllerPacket.PLAY_FLAG, 0, 3, "START", -1, controller, context),
                     screenScale(START_X, height) + rightDisplacement,
                     screenScale(START_BACK_Y, height),
                     screenScale(START_BACK_WIDTH, height),
                     screenScale(START_BACK_HEIGHT, height)
             );
-        }
-        else {
+        } else {
             controller.addElement(createDigitalButton(
-                    VirtualControllerElement.EID_LSB,
-                    ControllerPacket.LS_CLK_FLAG, 0, 1, "L3", -1, controller, context),
+                            VirtualControllerElement.EID_LSB,
+                            ControllerPacket.LS_CLK_FLAG, 0, 1, "L3", -1, controller, context),
                     screenScale(TRIGGER_L_BASE_X, height),
                     screenScale(L3_R3_BASE_Y, height),
                     screenScale(TRIGGER_WIDTH, height),
@@ -324,8 +316,8 @@ public class VirtualControllerConfigurationLoader {
             );
 
             controller.addElement(createDigitalButton(
-                    VirtualControllerElement.EID_RSB,
-                    ControllerPacket.RS_CLK_FLAG, 0, 1, "R3", -1, controller, context),
+                            VirtualControllerElement.EID_RSB,
+                            ControllerPacket.RS_CLK_FLAG, 0, 1, "R3", -1, controller, context),
                     screenScale(TRIGGER_R_BASE_X + TRIGGER_DISTANCE, height) + rightDisplacement,
                     screenScale(L3_R3_BASE_Y, height),
                     screenScale(TRIGGER_WIDTH, height),
@@ -341,7 +333,7 @@ public class VirtualControllerConfigurationLoader {
         SharedPreferences.Editor prefEditor = context.getSharedPreferences(OSC_PREFERENCE, Activity.MODE_PRIVATE).edit();
 
         for (VirtualControllerElement element : controller.getElements()) {
-            String prefKey = ""+element.elementId;
+            String prefKey = "" + element.elementId;
             try {
                 prefEditor.putString(prefKey, element.getConfiguration().toString());
             } catch (JSONException e) {
@@ -356,7 +348,7 @@ public class VirtualControllerConfigurationLoader {
         SharedPreferences pref = context.getSharedPreferences(OSC_PREFERENCE, Activity.MODE_PRIVATE);
 
         for (VirtualControllerElement element : controller.getElements()) {
-            String prefKey = ""+element.elementId;
+            String prefKey = "" + element.elementId;
 
             String jsonConfig = pref.getString(prefKey, null);
             if (jsonConfig != null) {

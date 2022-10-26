@@ -17,6 +17,8 @@ import android.widget.FrameLayout;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import vn.vhn.moonlight.surfaceduo.virtualcontroller.GameSD;
+
 public abstract class VirtualControllerElement extends View {
     protected static boolean _PRINT_DEBUG_INFORMATION = false;
 
@@ -68,6 +70,10 @@ public abstract class VirtualControllerElement extends View {
         this.elementId = elementId;
     }
 
+    public int getElementId() {
+        return elementId;
+    }
+
     protected void moveElement(int pressed_x, int pressed_y, int x, int y) {
         int newPos_x = (int) getX() + x - pressed_x;
         int newPos_y = (int) getY() + y - pressed_y;
@@ -104,7 +110,7 @@ public abstract class VirtualControllerElement extends View {
             paint.setStyle(Paint.Style.STROKE);
 
             canvas.drawRect(paint.getStrokeWidth(), paint.getStrokeWidth(),
-                    getWidth()-paint.getStrokeWidth(), getHeight()-paint.getStrokeWidth(),
+                    getWidth() - paint.getStrokeWidth(), getHeight() - paint.getStrokeWidth(),
                     paint);
         }
 
@@ -166,8 +172,10 @@ public abstract class VirtualControllerElement extends View {
     }
 
     protected int getDefaultStrokeWidth() {
+        Integer o = GameSD.Companion.getStrokeWidthOverride();
+        if (o != null) return o;
         DisplayMetrics screen = getResources().getDisplayMetrics();
-        return (int)(screen.heightPixels*0.004f);
+        return (int) (screen.heightPixels * 0.004f);
     }
 
     protected void showConfigurationDialog() {
@@ -178,11 +186,11 @@ public abstract class VirtualControllerElement extends View {
         CharSequence functions[] = new CharSequence[]{
                 "Move",
                 "Resize",
-            /*election
-            "Set n
-            Disable color sormal color",
-            "Set pressed color",
-            */
+                /*election
+                "Set n
+                Disable color sormal color",
+                "Set pressed color",
+                */
                 "Cancel"
         };
 

@@ -55,7 +55,7 @@ public class ServerHelper {
 
     public static Intent createStartIntent(Activity parent, NvApp app, ComputerDetails computer,
                                            ComputerManagerService.ComputerManagerBinder managerBinder) {
-        Intent intent = new Intent(parent, Game.class);
+        Intent intent = new Intent(parent, vn.vhn.moonlight.surfaceduo.virtualcontroller.GameSD.class);
         intent.putExtra(Game.EXTRA_HOST, computer.activeAddress);
         intent.putExtra(Game.EXTRA_APP_NAME, app.getAppName());
         intent.putExtra(Game.EXTRA_APP_ID, app.getAppId());

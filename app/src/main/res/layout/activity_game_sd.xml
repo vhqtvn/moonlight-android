@@ -1,0 +1,73 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    tools:context=".Game">
+
+    <FrameLayout
+        android:id="@+id/first"
+        android:layout_width="match_parent"
+        android:layout_weight="1"
+        android:layout_height="0dp">
+
+        <View
+            android:id="@+id/backgroundTouchView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center" />
+
+        <com.limelight.ui.StreamView
+            android:id="@+id/surfaceView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center"
+            android:defaultFocusHighlightEnabled="false"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:focusedByDefault="true">
+
+            <requestFocus />
+        </com.limelight.ui.StreamView>
+
+        <TextView
+            android:id="@+id/performanceOverlay"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="left"
+            android:layout_marginStart="10dp"
+            android:layout_marginLeft="10dp"
+            android:layout_marginTop="10dp"
+            android:background="#80000000"
+            android:gravity="left"
+            android:preferKeepClear="true"
+            android:textAppearance="?android:attr/textAppearanceSmall"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/notificationOverlay"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="right"
+            android:layout_marginTop="10dp"
+            android:layout_marginEnd="10dp"
+            android:layout_marginRight="10dp"
+            android:background="#80000000"
+            android:gravity="right"
+            android:preferKeepClear="true"
+            android:textAppearance="?android:attr/textAppearanceLarge"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <View
+        android:id="@+id/spacer"
+        android:layout_width="match_parent"
+        android:visibility="gone"
+        android:layout_height="0dp" />
+
+    <FrameLayout
+        android:id="@+id/second"
+        android:layout_width="match_parent"
+        android:visibility="gone"
+        android:layout_height="0dp" />
+</LinearLayout>

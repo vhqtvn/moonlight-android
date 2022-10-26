@@ -1,0 +1,54 @@
+name: Build Android CI
+
+on:
+    push:
+        tags:
+            - 'v[0-9]+.*'
+
+jobs:
+    build-android:
+        runs-on: [ubuntu-latest]
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  fetch-depth: 7
+                  submodules: recursive
+            - uses: actions/setup-java@v1
+              with:
+                  java-version: '12.x'
+            - name: "Setup variables"
+              id: build-config
+              run: |
+                  echo '::echo::on'
+                  echo '::set-output name=version_name::'$(basename ${{ github.ref }} | sed 's/^v//')
+            - name: "Build for Github release"
+              run: |
+                  [[ -z "${{ steps.build-config.outputs.version_name }}" ]] && exit 13
+                  SIGN_PASS=${{ secrets.SIGN_PASS }} ./gradlew assembleRelease --no-daemon
+            - name: Create Release
+              id: create_release
+              uses: actions/create-release@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  tag_name: ${{ github.ref }}
+                  release_name: Release ${{ github.ref }}
+                  draft: false
+            - name: Upload release release
+              uses: actions/upload-release-asset@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url: ${{ steps.create_release.outputs.upload_url }}
+                  asset_name: MoonLight-SurfaceDuo-${{ steps.build-config.outputs.version_name }}-nonRoot.apk
+                  asset_path: ./app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk
+                  asset_content_type: application/vnd.android.package-archive
+            - name: Upload release release
+              uses: actions/upload-release-asset@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url: ${{ steps.create_release.outputs.upload_url }}
+                  asset_name: MoonLight-SurfaceDuo-${{ steps.build-config.outputs.version_name }}-root.apk
+                  asset_path: ./app/build/outputs/apk/root/release/app-root-release.apk
+                  asset_content_type: application/vnd.android.package-archive
