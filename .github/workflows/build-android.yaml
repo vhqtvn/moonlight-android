@@ -3,7 +3,7 @@ name: Build Android CI
 on:
     push:
         tags:
-            - 'v[0-9]+.*'
+            - 'v[0-9]+.*-duo'
 
 jobs:
     build-android:
