@@ -7,7 +7,6 @@ import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 
@@ -25,13 +24,13 @@ public class MdnsDiscoveryAgent implements ServiceListener {
     
     private MdnsDiscoveryListener listener;
     private Thread discoveryThread;
-    private HashMap<InetAddress, MdnsComputer> computers = new HashMap<InetAddress, MdnsComputer>();
-    private HashSet<String> pendingResolution = new HashSet<String>();
+    private HashSet<MdnsComputer> computers = new HashSet<>();
+    private HashSet<String> pendingResolution = new HashSet<>();
     
     // The resolver factory's instance member has a static lifetime which
     // means our ref count and listener must be static also.
     private static int resolverRefCount = 0;
-    private static HashSet<ServiceListener> listeners = new HashSet<ServiceListener>();
+    private static HashSet<ServiceListener> listeners = new HashSet<>();
     private static ServiceListener nvstreamListener = new ServiceListener() {
         @Override
         public void serviceAdded(ServiceEvent event) {
@@ -107,7 +106,7 @@ public class MdnsDiscoveryAgent implements ServiceListener {
                 return false;
             }
         }
-    };
+    }
 
     static {
         // Override jmDNS's default topology discovery class with ours
@@ -260,8 +259,8 @@ public class MdnsDiscoveryAgent implements ServiceListener {
         // Add a computer object for each IPv4 address reported by the PC
         for (Inet4Address v4Addr : v4Addrs) {
             synchronized (computers) {
-                MdnsComputer computer = new MdnsComputer(info.getName(), v4Addr, v6GlobalAddr);
-                if (computers.put(computer.getLocalAddress(), computer) == null) {
+                MdnsComputer computer = new MdnsComputer(info.getName(), v4Addr, v6GlobalAddr, info.getPort());
+                if (computers.add(computer)) {
                     // This was a new entry
                     listener.notifyComputerAdded(computer);
                 }
@@ -273,9 +272,8 @@ public class MdnsDiscoveryAgent implements ServiceListener {
             Inet6Address v6LocalAddr = getLocalAddress(v6Addrs);
 
             if (v6LocalAddr != null || v6GlobalAddr != null) {
-                MdnsComputer computer = new MdnsComputer(info.getName(), v6LocalAddr, v6GlobalAddr);
-                if (computers.put(v6LocalAddr != null ?
-                        computer.getLocalAddress() : computer.getIpv6Address(), computer) == null) {
+                MdnsComputer computer = new MdnsComputer(info.getName(), v6LocalAddr, v6GlobalAddr, info.getPort());
+                if (computers.add(computer)) {
                     // This was a new entry
                     listener.notifyComputerAdded(computer);
                 }
@@ -353,7 +351,7 @@ public class MdnsDiscoveryAgent implements ServiceListener {
     
     public List<MdnsComputer> getComputerSet() {
         synchronized (computers) {
-            return new ArrayList<MdnsComputer>(computers.values());
+            return new ArrayList<>(computers);
         }
     }
 
@@ -377,28 +375,6 @@ public class MdnsDiscoveryAgent implements ServiceListener {
     @Override
     public void serviceRemoved(ServiceEvent event) {
         LimeLog.info("mDNS: Machine disappeared: "+event.getInfo().getName());
-
-        Inet4Address v4Addrs[] = event.getInfo().getInet4Addresses();
-        for (Inet4Address addr : v4Addrs) {
-            synchronized (computers) {
-                MdnsComputer computer = computers.remove(addr);
-                if (computer != null) {
-                    listener.notifyComputerRemoved(computer);
-                    break;
-                }
-            }
-        }
-
-        Inet6Address v6Addrs[] = event.getInfo().getInet6Addresses();
-        for (Inet6Address addr : v6Addrs) {
-            synchronized (computers) {
-                MdnsComputer computer = computers.remove(addr);
-                if (computer != null) {
-                    listener.notifyComputerRemoved(computer);
-                    break;
-                }
-            }
-        }
     }
 
     @Override

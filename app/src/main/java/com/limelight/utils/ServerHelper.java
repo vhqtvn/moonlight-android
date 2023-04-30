@@ -6,13 +6,12 @@ import android.widget.Toast;
 
 import com.limelight.AppView;
 import com.limelight.Game;
-import com.limelight.PcView;
 import com.limelight.R;
 import com.limelight.ShortcutTrampoline;
 import com.limelight.binding.PlatformBinding;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.nvstream.http.ComputerDetails;
-import com.limelight.nvstream.http.GfeHttpResponseException;
+import com.limelight.nvstream.http.HostHttpResponseException;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.jni.MoonBridge;
@@ -27,7 +26,7 @@ import java.security.cert.CertificateEncodingException;
 public class ServerHelper {
     public static final String CONNECTION_TEST_SERVER = "android.conntest.moonlight-stream.org";
 
-    public static String getCurrentAddressFromComputer(ComputerDetails computer) throws IOException {
+    public static ComputerDetails.AddressTuple getCurrentAddressFromComputer(ComputerDetails computer) throws IOException {
         if (computer.activeAddress == null) {
             throw new IOException("No active address for "+computer.name);
         }
@@ -56,7 +55,9 @@ public class ServerHelper {
     public static Intent createStartIntent(Activity parent, NvApp app, ComputerDetails computer,
                                            ComputerManagerService.ComputerManagerBinder managerBinder) {
         Intent intent = new Intent(parent, vn.vhn.moonlight.surfaceduo.virtualcontroller.GameSD.class);
-        intent.putExtra(Game.EXTRA_HOST, computer.activeAddress);
+        intent.putExtra(Game.EXTRA_HOST, computer.activeAddress.address);
+        intent.putExtra(Game.EXTRA_PORT, computer.activeAddress.port);
+        intent.putExtra(Game.EXTRA_HTTPS_PORT, computer.httpsPort);
         intent.putExtra(Game.EXTRA_APP_NAME, app.getAppName());
         intent.putExtra(Game.EXTRA_APP_ID, app.getAppId());
         intent.putExtra(Game.EXTRA_APP_HDR, app.isHdrSupported());
@@ -126,14 +127,14 @@ public class ServerHelper {
                 NvHTTP httpConn;
                 String message;
                 try {
-                    httpConn = new NvHTTP(ServerHelper.getCurrentAddressFromComputer(computer),
+                    httpConn = new NvHTTP(ServerHelper.getCurrentAddressFromComputer(computer), computer.httpsPort,
                             managerBinder.getUniqueId(), computer.serverCert, PlatformBinding.getCryptoProvider(parent));
                     if (httpConn.quitApp()) {
                         message = parent.getResources().getString(R.string.applist_quit_success) + " " + app.getAppName();
                     } else {
                         message = parent.getResources().getString(R.string.applist_quit_fail) + " " + app.getAppName();
                     }
-                } catch (GfeHttpResponseException e) {
+                } catch (HostHttpResponseException e) {
                     if (e.getErrorCode() == 599) {
                         message = "This session wasn't started by this device," +
                                 " so it cannot be quit. End streaming on the original " +

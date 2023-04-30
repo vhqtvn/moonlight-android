@@ -15,32 +15,71 @@ import java.security.cert.X509Certificate;
 import java.util.LinkedList;
 import java.util.List;
 
-public class LegacyDatabaseReader2 {
-    private static final String COMPUTER_DB_NAME = "computers2.db";
+public class LegacyDatabaseReader3 {
+    private static final String COMPUTER_DB_NAME = "computers3.db";
     private static final String COMPUTER_TABLE_NAME = "Computers";
+
+    private static final char ADDRESS_DELIMITER = ';';
+    private static final char PORT_DELIMITER = '_';
+
+    private static String readNonEmptyString(String input) {
+        if (input.isEmpty()) {
+            return null;
+        }
+
+        return input;
+    }
+
+    private static ComputerDetails.AddressTuple splitAddressToTuple(String input) {
+        if (input == null) {
+            return null;
+        }
+
+        String[] parts = input.split(""+PORT_DELIMITER, -1);
+        if (parts.length == 1) {
+            return new ComputerDetails.AddressTuple(parts[0], NvHTTP.DEFAULT_HTTP_PORT);
+        }
+        else {
+            return new ComputerDetails.AddressTuple(parts[0], Integer.parseInt(parts[1]));
+        }
+    }
+
+    private static String splitTupleToAddress(ComputerDetails.AddressTuple tuple) {
+        return tuple.address+PORT_DELIMITER+tuple.port;
+    }
 
     private static ComputerDetails getComputerFromCursor(Cursor c) {
         ComputerDetails details = new ComputerDetails();
 
         details.uuid = c.getString(0);
         details.name = c.getString(1);
-        details.localAddress = new ComputerDetails.AddressTuple(c.getString(2), NvHTTP.DEFAULT_HTTP_PORT);
-        details.remoteAddress = new ComputerDetails.AddressTuple(c.getString(3), NvHTTP.DEFAULT_HTTP_PORT);
-        details.manualAddress = new ComputerDetails.AddressTuple(c.getString(4), NvHTTP.DEFAULT_HTTP_PORT);
-        details.macAddress = c.getString(5);
 
-        // This column wasn't always present in the old schema
-        if (c.getColumnCount() >= 7) {
-            try {
-                byte[] derCertData = c.getBlob(6);
+        String[] addresses = c.getString(2).split(""+ADDRESS_DELIMITER, -1);
 
-                if (derCertData != null) {
-                    details.serverCert = (X509Certificate) CertificateFactory.getInstance("X.509")
-                            .generateCertificate(new ByteArrayInputStream(derCertData));
-                }
-            } catch (CertificateException e) {
-                e.printStackTrace();
+        details.localAddress = splitAddressToTuple(readNonEmptyString(addresses[0]));
+        details.remoteAddress = splitAddressToTuple(readNonEmptyString(addresses[1]));
+        details.manualAddress = splitAddressToTuple(readNonEmptyString(addresses[2]));
+        details.ipv6Address = splitAddressToTuple(readNonEmptyString(addresses[3]));
+
+        // External port is persisted in the remote address field
+        if (details.remoteAddress != null) {
+            details.externalPort = details.remoteAddress.port;
+        }
+        else {
+            details.externalPort = NvHTTP.DEFAULT_HTTP_PORT;
+        }
+
+        details.macAddress = c.getString(3);
+
+        try {
+            byte[] derCertData = c.getBlob(4);
+
+            if (derCertData != null) {
+                details.serverCert = (X509Certificate) CertificateFactory.getInstance("X.509")
+                        .generateCertificate(new ByteArrayInputStream(derCertData));
             }
+        } catch (CertificateException e) {
+            e.printStackTrace();
         }
 
         // This signifies we don't have dynamic state (like pair state)

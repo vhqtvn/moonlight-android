@@ -9,7 +9,9 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 
+import com.limelight.LimeLog;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.NvHTTP;
 
 import android.content.ContentValues;
 import android.content.Context;
@@ -17,16 +19,27 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteException;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 public class ComputerDatabaseManager {
-    private static final String COMPUTER_DB_NAME = "computers3.db";
+    private static final String COMPUTER_DB_NAME = "computers4.db";
     private static final String COMPUTER_TABLE_NAME = "Computers";
     private static final String COMPUTER_UUID_COLUMN_NAME = "UUID";
     private static final String COMPUTER_NAME_COLUMN_NAME = "ComputerName";
     private static final String ADDRESSES_COLUMN_NAME = "Addresses";
+    private interface AddressFields {
+        String LOCAL = "local";
+        String REMOTE = "remote";
+        String MANUAL = "manual";
+        String IPv6 = "ipv6";
+
+        String ADDRESS = "address";
+        String PORT = "port";
+    }
+
     private static final String MAC_ADDRESS_COLUMN_NAME = "MacAddress";
     private static final String SERVER_CERT_COLUMN_NAME = "ServerCert";
-
-    private static final char ADDRESS_DELIMITER = ';';
 
     private SQLiteDatabase computerDb;
 
@@ -62,10 +75,36 @@ public class ComputerDatabaseManager {
         for (ComputerDetails computer : oldComputers) {
             updateComputer(computer);
         }
+        oldComputers = LegacyDatabaseReader3.migrateAllComputers(c);
+        for (ComputerDetails computer : oldComputers) {
+            updateComputer(computer);
+        }
     }
 
     public void deleteComputer(ComputerDetails details) {
         computerDb.delete(COMPUTER_TABLE_NAME, COMPUTER_UUID_COLUMN_NAME+"=?", new String[]{details.uuid});
+    }
+
+    public static JSONObject tupleToJson(ComputerDetails.AddressTuple tuple) throws JSONException {
+        if (tuple == null) {
+            return null;
+        }
+
+        JSONObject json = new JSONObject();
+        json.put(AddressFields.ADDRESS, tuple.address);
+        json.put(AddressFields.PORT, tuple.port);
+
+        return json;
+    }
+
+    public static ComputerDetails.AddressTuple tupleFromJson(JSONObject json, String name) throws JSONException {
+        if (!json.has(name)) {
+            return null;
+        }
+
+        JSONObject address = json.getJSONObject(name);
+        return new ComputerDetails.AddressTuple(
+                address.getString(AddressFields.ADDRESS), address.getInt(AddressFields.PORT));
     }
 
     public boolean updateComputer(ComputerDetails details) {
@@ -73,13 +112,17 @@ public class ComputerDatabaseManager {
         values.put(COMPUTER_UUID_COLUMN_NAME, details.uuid);
         values.put(COMPUTER_NAME_COLUMN_NAME, details.name);
 
-        StringBuilder addresses = new StringBuilder();
-        addresses.append(details.localAddress != null ? details.localAddress : "");
-        addresses.append(ADDRESS_DELIMITER).append(details.remoteAddress != null ? details.remoteAddress : "");
-        addresses.append(ADDRESS_DELIMITER).append(details.manualAddress != null ? details.manualAddress : "");
-        addresses.append(ADDRESS_DELIMITER).append(details.ipv6Address != null ? details.ipv6Address : "");
+        try {
+            JSONObject addresses = new JSONObject();
+            addresses.put(AddressFields.LOCAL, tupleToJson(details.localAddress));
+            addresses.put(AddressFields.REMOTE, tupleToJson(details.remoteAddress));
+            addresses.put(AddressFields.MANUAL, tupleToJson(details.manualAddress));
+            addresses.put(AddressFields.IPv6, tupleToJson(details.ipv6Address));
+            values.put(ADDRESSES_COLUMN_NAME, addresses.toString());
+        } catch (JSONException e) {
+            throw new RuntimeException(e);
+        }
 
-        values.put(ADDRESSES_COLUMN_NAME, addresses.toString());
         values.put(MAC_ADDRESS_COLUMN_NAME, details.macAddress);
         try {
             if (details.serverCert != null) {
@@ -95,26 +138,28 @@ public class ComputerDatabaseManager {
         return -1 != computerDb.insertWithOnConflict(COMPUTER_TABLE_NAME, null, values, SQLiteDatabase.CONFLICT_REPLACE);
     }
 
-    private static String readNonEmptyString(String input) {
-        if (input.isEmpty()) {
-            return null;
-        }
-
-        return input;
-    }
-
     private ComputerDetails getComputerFromCursor(Cursor c) {
         ComputerDetails details = new ComputerDetails();
 
         details.uuid = c.getString(0);
         details.name = c.getString(1);
+        try {
+            JSONObject addresses = new JSONObject(c.getString(2));
+            details.localAddress = tupleFromJson(addresses, AddressFields.LOCAL);
+            details.remoteAddress = tupleFromJson(addresses, AddressFields.REMOTE);
+            details.manualAddress = tupleFromJson(addresses, AddressFields.MANUAL);
+            details.ipv6Address = tupleFromJson(addresses, AddressFields.IPv6);
+        } catch (JSONException e) {
+            throw new RuntimeException(e);
+         }
 
-        String[] addresses = c.getString(2).split(""+ADDRESS_DELIMITER, -1);
-
-        details.localAddress = readNonEmptyString(addresses[0]);
-        details.remoteAddress = readNonEmptyString(addresses[1]);
-        details.manualAddress = readNonEmptyString(addresses[2]);
-        details.ipv6Address = readNonEmptyString(addresses[3]);
+        // External port is persisted in the remote address field
+        if (details.remoteAddress != null) {
+            details.externalPort = details.remoteAddress.port;
+        }
+        else {
+            details.externalPort = NvHTTP.DEFAULT_HTTP_PORT;
+        }
 
         details.macAddress = c.getString(3);
 
@@ -136,28 +181,26 @@ public class ComputerDatabaseManager {
     }
 
     public List<ComputerDetails> getAllComputers() {
-        Cursor c = computerDb.rawQuery("SELECT * FROM "+COMPUTER_TABLE_NAME, null);
-        LinkedList<ComputerDetails> computerList = new LinkedList<>();
-        while (c.moveToNext()) {
-            computerList.add(getComputerFromCursor(c));
+        try (final Cursor c = computerDb.rawQuery("SELECT * FROM "+COMPUTER_TABLE_NAME, null)) {
+            LinkedList<ComputerDetails> computerList = new LinkedList<>();
+            while (c.moveToNext()) {
+                computerList.add(getComputerFromCursor(c));
+            }
+            return computerList;
         }
-
-        c.close();
-
-        return computerList;
     }
 
     public ComputerDetails getComputerByUUID(String uuid) {
-        Cursor c = computerDb.query(COMPUTER_TABLE_NAME, null, COMPUTER_UUID_COLUMN_NAME+"=?", new String[]{ uuid }, null, null, null);
-        if (!c.moveToFirst()) {
-            // No matching computer
-            c.close();
-            return null;
+        try (final Cursor c = computerDb.query(
+                COMPUTER_TABLE_NAME, null, COMPUTER_UUID_COLUMN_NAME+"=?",
+                new String[]{ uuid }, null, null, null)
+        ) {
+            if (!c.moveToFirst()) {
+                // No matching computer
+                return null;
+            }
+
+            return getComputerFromCursor(c);
         }
-
-        ComputerDetails details = getComputerFromCursor(c);
-        c.close();
-
-        return details;
     }
 }

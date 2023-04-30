@@ -22,6 +22,7 @@ import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
+import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.input.KeyboardPacket;
 import com.limelight.nvstream.input.MouseButtonPacket;
 import com.limelight.nvstream.jni.MoonBridge;
@@ -30,7 +31,6 @@ import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.GameGestures;
 import com.limelight.ui.StreamView;
 import com.limelight.utils.Dialog;
-import com.limelight.utils.NetHelper;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
 import com.limelight.utils.SpinnerDialog;
@@ -62,6 +62,7 @@ import android.os.IBinder;
 import android.util.Rational;
 import android.view.Display;
 import android.view.InputDevice;
+import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.Surface;
@@ -127,6 +128,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     private int suppressPipRefCount = 0;
     private String pcName;
     private String appName;
+    private float desiredRefreshRate;
 
     private InputCaptureProvider inputCaptureProvider;
     private int modifierFlags = 0;
@@ -169,6 +171,8 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     };
 
     public static final String EXTRA_HOST = "Host";
+    public static final String EXTRA_PORT = "Port";
+    public static final String EXTRA_HTTPS_PORT = "HttpsPort";
     public static final String EXTRA_APP_NAME = "AppName";
     public static final String EXTRA_APP_ID = "AppId";
     public static final String EXTRA_UNIQUEID = "UniqueId";
@@ -246,7 +250,6 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         View backgroundTouchView = findViewById(R.id.backgroundTouchView);
         backgroundTouchView.setOnTouchListener(this);
 
-        boolean needsInputBatching = false;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // Request unbuffered input event dispatching for all input classes we handle here.
             // Without this, input events are buffered to be delivered in lock-step with VBlank,
@@ -265,10 +268,6 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                     InputDevice.SOURCE_CLASS_POSITION | // Touchpads
                     InputDevice.SOURCE_CLASS_TRACKBALL // Mice (pointer capture)
             );
-
-            // Since the OS isn't going to batch for us, we have to batch mouse events to
-            // avoid triggering a bug in GeForce Experience that can lead to massive latency.
-            needsInputBatching = true;
         }
 
         notificationOverlayView = findViewById(R.id.notificationOverlay);
@@ -314,6 +313,8 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         pcName = Game.this.getIntent().getStringExtra(EXTRA_PC_NAME);
 
         String host = Game.this.getIntent().getStringExtra(EXTRA_HOST);
+        int port = Game.this.getIntent().getIntExtra(EXTRA_PORT, NvHTTP.DEFAULT_HTTP_PORT);
+        int httpsPort = Game.this.getIntent().getIntExtra(EXTRA_HTTPS_PORT, 0); // 0 is treated as unknown
         int appId = Game.this.getIntent().getIntExtra(EXTRA_APP_ID, StreamConfiguration.INVALID_APP_ID);
         String uniqueId = Game.this.getIntent().getStringExtra(EXTRA_UNIQUEID);
         String uuid = Game.this.getIntent().getStringExtra(EXTRA_PC_UUID);
@@ -453,11 +454,6 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             }
         }
 
-        boolean vpnActive = NetHelper.isActiveNetworkVpn(this);
-        if (vpnActive) {
-            LimeLog.info("Detected active network is a VPN");
-        }
-
         StreamConfiguration config = new StreamConfiguration.Builder()
                 .setResolution(prefConfig.width, prefConfig.height)
                 .setLaunchRefreshRate(prefConfig.fps)
@@ -466,10 +462,8 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 .setBitrate(prefConfig.bitrate)
                 .setEnableSops(prefConfig.enableSops)
                 .enableLocalAudioPlayback(prefConfig.playHostAudio)
-                .setMaxPacketSize(vpnActive ? 1024 : 1392) // Lower MTU on VPN
-                .setRemoteConfiguration(vpnActive ? // Use remote optimizations on VPN
-                        StreamConfiguration.STREAM_CFG_REMOTE :
-                        StreamConfiguration.STREAM_CFG_AUTO)
+                .setMaxPacketSize(1392)
+                .setRemoteConfiguration(StreamConfiguration.STREAM_CFG_AUTO) // NvConnection will perform LAN and VPN detection
                 .setHevcBitratePercentageMultiplier(75)
                 .setHevcSupported(decoderRenderer.isHevcSupported())
                 .setEnableHdr(willStreamHdr)
@@ -479,10 +473,14 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 .setAudioEncryption(true)
                 .setColorSpace(decoderRenderer.getPreferredColorSpace())
                 .setColorRange(decoderRenderer.getPreferredColorRange())
+                .setPersistGamepadsAfterDisconnect(!prefConfig.multiController)
                 .build();
 
         // Initialize the connection
-        conn = new NvConnection(host, uniqueId, config, PlatformBinding.getCryptoProvider(this), serverCert, needsInputBatching);
+        conn = new NvConnection(getApplicationContext(),
+                new ComputerDetails.AddressTuple(host, port),
+                httpsPort, uniqueId, config,
+                PlatformBinding.getCryptoProvider(this), serverCert);
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
         keyboardTranslator = new KeyboardTranslator();
 
@@ -810,6 +808,9 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             boolean refreshRateIsGood = isRefreshRateGoodMatch(bestMode.getRefreshRate());
             boolean refreshRateIsEqual = isRefreshRateEqualMatch(bestMode.getRefreshRate());
 
+            LimeLog.info("Current display mode: "+bestMode.getPhysicalWidth()+"x"+
+                    bestMode.getPhysicalHeight()+"x"+bestMode.getRefreshRate());
+
             for (Display.Mode candidate : display.getSupportedModes()) {
                 boolean refreshRateReduced = candidate.getRefreshRate() < bestMode.getRefreshRate();
                 boolean resolutionReduced = candidate.getPhysicalWidth() < bestMode.getPhysicalWidth() ||
@@ -886,9 +887,30 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 refreshRateIsGood = isRefreshRateGoodMatch(candidate.getRefreshRate());
                 refreshRateIsEqual = isRefreshRateEqualMatch(candidate.getRefreshRate());
             }
-            LimeLog.info("Selected display mode: "+bestMode.getPhysicalWidth()+"x"+
+
+            LimeLog.info("Best display mode: "+bestMode.getPhysicalWidth()+"x"+
                     bestMode.getPhysicalHeight()+"x"+bestMode.getRefreshRate());
-            windowLayoutParams.preferredDisplayModeId = bestMode.getModeId();
+
+            // Only apply new window layout parameters if we've actually changed the display mode
+            if (display.getMode().getModeId() != bestMode.getModeId()) {
+                // If we only changed refresh rate and we're on an OS that supports Surface.setFrameRate()
+                // use that instead of using preferredDisplayModeId to avoid the possibility of triggering
+                // bugs that can cause the system to switch from 4K60 to 4K24 on Chromecast 4K.
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                        display.getMode().getPhysicalWidth() != bestMode.getPhysicalWidth() ||
+                        display.getMode().getPhysicalHeight() != bestMode.getPhysicalHeight()) {
+                    // Apply the display mode change
+                    windowLayoutParams.preferredDisplayModeId = bestMode.getModeId();
+                    getWindow().setAttributes(windowLayoutParams);
+                }
+                else {
+                    LimeLog.info("Using setFrameRate() instead of preferredDisplayModeId due to matching resolution");
+                }
+            }
+            else {
+                LimeLog.info("Current display mode is already the best display mode");
+            }
+
             displayRefreshRate = bestMode.getRefreshRate();
         }
         // On L, we can at least tell the OS that we want a refresh rate
@@ -908,23 +930,19 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                     bestRefreshRate = candidate;
                 }
             }
+
             LimeLog.info("Selected refresh rate: "+bestRefreshRate);
             windowLayoutParams.preferredRefreshRate = bestRefreshRate;
             displayRefreshRate = bestRefreshRate;
+
+            // Apply the refresh rate change
+            getWindow().setAttributes(windowLayoutParams);
         }
         else {
             // Otherwise, the active display refresh rate is just
             // whatever is currently in use.
             displayRefreshRate = display.getRefreshRate();
         }
-
-        // Enable HDMI ALLM (game mode) on Android R
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            windowLayoutParams.preferMinimalPostProcessing = true;
-        }
-
-        // Apply the display mode change
-        getWindow().setAttributes(windowLayoutParams);
 
         // From 4.4 to 5.1 we can't ask for a 4K display mode, so we'll
         // need to hint the OS to provide one.
@@ -956,6 +974,9 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             // Set the surface to scale based on the aspect ratio of the stream
             streamView.setDesiredAspectRatio((double)prefConfig.width / (double)prefConfig.height);
         }
+
+        // Set the desired refresh rate that will get passed into setFrameRate() later
+        desiredRefreshRate = displayRefreshRate;
 
         if (getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEVISION) ||
                 getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK)) {
@@ -1127,17 +1148,25 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         finish();
     }
 
+    private void setInputGrabState(boolean grab) {
+        // Grab/ungrab the mouse cursor
+        if (grab) {
+            inputCaptureProvider.enableCapture();
+        }
+        else {
+            inputCaptureProvider.disableCapture();
+        }
+
+        // Grab/ungrab system keyboard shortcuts
+        setMetaKeyCaptureState(grab);
+
+        grabbedInput = grab;
+    }
+
     private final Runnable toggleGrab = new Runnable() {
         @Override
         public void run() {
-            if (grabbedInput) {
-                inputCaptureProvider.disableCapture();
-            }
-            else {
-                inputCaptureProvider.enableCapture();
-            }
-
-            grabbedInput = !grabbedInput;
+            setInputGrabState(!grabbedInput);
         }
     };
 
@@ -1157,6 +1186,10 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                  androidKeyCode == KeyEvent.KEYCODE_ALT_RIGHT) {
             modifierMask = KeyboardPacket.MODIFIER_ALT;
         }
+        else if (androidKeyCode == KeyEvent.KEYCODE_META_LEFT ||
+                androidKeyCode == KeyEvent.KEYCODE_META_RIGHT) {
+            modifierMask = KeyboardPacket.MODIFIER_META;
+        }
 
         if (down) {
             this.modifierFlags |= modifierMask;
@@ -1165,10 +1198,10 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             this.modifierFlags &= ~modifierMask;
         }
 
-        // Check if Ctrl+Shift+Z is pressed
+        // Check if Ctrl+Alt+Shift+Z is pressed
         if (androidKeyCode == KeyEvent.KEYCODE_Z &&
-            (modifierFlags & (KeyboardPacket.MODIFIER_CTRL | KeyboardPacket.MODIFIER_SHIFT)) ==
-                (KeyboardPacket.MODIFIER_CTRL | KeyboardPacket.MODIFIER_SHIFT))
+            (modifierFlags & (KeyboardPacket.MODIFIER_CTRL | KeyboardPacket.MODIFIER_ALT | KeyboardPacket.MODIFIER_SHIFT)) ==
+                (KeyboardPacket.MODIFIER_CTRL | KeyboardPacket.MODIFIER_ALT | KeyboardPacket.MODIFIER_SHIFT))
         {
             if (down) {
                 // Now that we've pressed the magic combo
@@ -1219,6 +1252,9 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         if (event.isAltPressed()) {
             modifier |= KeyboardPacket.MODIFIER_ALT;
         }
+        if (event.isMetaPressed()) {
+            modifier |= KeyboardPacket.MODIFIER_META;
+        }
         return modifier;
     }
 
@@ -1266,20 +1302,10 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             handled = controllerHandler.handleButtonDown(event);
         }
 
+        // Try the keyboard handler if it wasn't handled as a game controller
         if (!handled) {
-            // Try the keyboard handler
-            short translated = keyboardTranslator.translate(event.getKeyCode(), event.getDeviceId());
-            if (translated == 0) {
-                return false;
-            }
-
             // Let this method take duplicate key down events
             if (handleSpecialKeys(event.getKeyCode(), true)) {
-                return true;
-            }
-
-            // Eat repeat down events
-            if (event.getRepeatCount() > 0) {
                 return true;
             }
 
@@ -1288,11 +1314,31 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 return false;
             }
 
-            byte modifiers = getModifierState(event);
-            if (KeyboardTranslator.needsShift(event.getKeyCode())) {
-                modifiers |= KeyboardPacket.MODIFIER_SHIFT;
+            // We'll send it as a raw key event if we have a key mapping, otherwise we'll send it
+            // as UTF-8 text (if it's a printable character).
+            short translated = keyboardTranslator.translate(event.getKeyCode(), event.getDeviceId());
+            if (translated == 0) {
+                // Make sure it has a valid Unicode representation and it's not a dead character
+                // (which we don't support). If those are true, we can send it as UTF-8 text.
+                //
+                // NB: We need to be sure this happens before the getRepeatCount() check because
+                // UTF-8 events don't auto-repeat on the host side.
+                int unicodeChar = event.getUnicodeChar();
+                if ((unicodeChar & KeyCharacterMap.COMBINING_ACCENT) == 0 && (unicodeChar & KeyCharacterMap.COMBINING_ACCENT_MASK) != 0) {
+                    conn.sendUtf8Text(""+(char)unicodeChar);
+                    return true;
+                }
+
+                return false;
             }
-            conn.sendKeyboardInput(translated, KeyboardPacket.KEY_DOWN, modifiers);
+
+            // Eat repeat down events
+            if (event.getRepeatCount() > 0) {
+                return true;
+            }
+
+            conn.sendKeyboardInput(translated, KeyboardPacket.KEY_DOWN, getModifierState(event),
+                    keyboardTranslator.hasNormalizedMapping(event.getKeyCode(), event.getDeviceId()) ? 0 : MoonBridge.SS_KBE_FLAG_NON_NORMALIZED);
         }
 
         return true;
@@ -1336,13 +1382,8 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             handled = controllerHandler.handleButtonUp(event);
         }
 
+        // Try the keyboard handler if it wasn't handled as a game controller
         if (!handled) {
-            // Try the keyboard handler
-            short translated = keyboardTranslator.translate(event.getKeyCode(), event.getDeviceId());
-            if (translated == 0) {
-                return false;
-            }
-
             if (handleSpecialKeys(event.getKeyCode(), false)) {
                 return true;
             }
@@ -1352,13 +1393,40 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 return false;
             }
 
-            byte modifiers = getModifierState(event);
-            if (KeyboardTranslator.needsShift(event.getKeyCode())) {
-                modifiers |= KeyboardPacket.MODIFIER_SHIFT;
+            short translated = keyboardTranslator.translate(event.getKeyCode(), event.getDeviceId());
+            if (translated == 0) {
+                // If we sent this event as UTF-8 on key down, also report that it was handled
+                // when we get the key up event for it.
+                int unicodeChar = event.getUnicodeChar();
+                return (unicodeChar & KeyCharacterMap.COMBINING_ACCENT) == 0 && (unicodeChar & KeyCharacterMap.COMBINING_ACCENT_MASK) != 0;
             }
-            conn.sendKeyboardInput(translated, KeyboardPacket.KEY_UP, modifiers);
+
+            conn.sendKeyboardInput(translated, KeyboardPacket.KEY_UP, getModifierState(event),
+                    keyboardTranslator.hasNormalizedMapping(event.getKeyCode(), event.getDeviceId()) ? 0 : MoonBridge.SS_KBE_FLAG_NON_NORMALIZED);
         }
 
+        return true;
+    }
+
+    @Override
+    public boolean onKeyMultiple(int keyCode, int repeatCount, KeyEvent event) {
+        return handleKeyMultiple(event) || super.onKeyMultiple(keyCode, repeatCount, event);
+    }
+
+    private boolean handleKeyMultiple(KeyEvent event) {
+        // We can receive keys from a software keyboard that don't correspond to any existing
+        // KEYCODE value. Android will give those to us as an ACTION_MULTIPLE KeyEvent.
+        //
+        // Despite the fact that the Android docs say this is unused since API level 29, these
+        // events are still sent as of Android 13 for the above case.
+        //
+        // For other cases of ACTION_MULTIPLE, we will not report those as handled so hopefully
+        // they will be passed to us again as regular singular key events.
+        if (event.getKeyCode() != KeyEvent.KEYCODE_UNKNOWN || event.getCharacters() == null) {
+            return false;
+        }
+
+        conn.sendUtf8Text(event.getCharacters());
         return true;
     }
 
@@ -1487,6 +1555,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 if (event.getActionMasked() == MotionEvent.ACTION_SCROLL) {
                     // Send the vertical scroll packet
                     conn.sendMouseHighResScroll((short)(event.getAxisValue(MotionEvent.AXIS_VSCROLL) * 120));
+                    conn.sendMouseHighResHScroll((short)(event.getAxisValue(MotionEvent.AXIS_HSCROLL) * 120));
                 }
 
                 if ((changedButtons & MotionEvent.BUTTON_PRIMARY) != 0) {
@@ -1778,7 +1847,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     @SuppressLint("ClickableViewAccessibility")
     @Override
     public boolean onTouch(View view, MotionEvent event) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 // Tell the OS not to buffer input events for us
                 //
@@ -1882,11 +1951,8 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 // Let the display go to sleep now
                 getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-                // Enable cursor visibility again
-                inputCaptureProvider.disableCapture();
-
-                // Disable meta key capture
-                setMetaKeyCaptureState(false);
+                // Ungrab input
+                setInputGrabState(false);
 
                 if (!displayedFailureDialog) {
                     displayedFailureDialog = true;
@@ -1996,15 +2062,12 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 h.postDelayed(new Runnable() {
                     @Override
                     public void run() {
-                        inputCaptureProvider.enableCapture();
+                        setInputGrabState(true);
                     }
                 }, 500);
 
                 // Keep the display on
                 getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
-                // Enable meta key capture
-                setMetaKeyCaptureState(true);
 
                 // Update GameManager state to indicate we're in game
                 UiHelper.notifyStreamConnected(Game.this);
@@ -2044,9 +2107,9 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     }
 
     @Override
-    public void setHdrMode(boolean enabled) {
+    public void setHdrMode(boolean enabled, byte[] hdrMetadata) {
         LimeLog.info("Display HDR mode: " + (enabled ? "enabled" : "disabled"));
-        decoderRenderer.setHdrMode(enabled);
+        decoderRenderer.setHdrMode(enabled, hdrMetadata);
     }
 
     @Override
@@ -2069,11 +2132,37 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
+        float desiredFrameRate;
+
         surfaceCreated = true;
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Tell the OS about our frame rate to allow it to adapt the display refresh rate appropriately
-            holder.getSurface().setFrameRate(prefConfig.fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
+        // Android will pick the lowest matching refresh rate for a given frame rate value, so we want
+        // to report the true FPS value if refresh rate reduction is enabled. We also report the true
+        // FPS value if there's no suitable matching refresh rate. In that case, Android could try to
+        // select a lower refresh rate that avoids uneven pull-down (ex: 30 Hz for a 60 FPS stream on
+        // a display that maxes out at 50 Hz).
+        if (mayReduceRefreshRate() || desiredRefreshRate < prefConfig.fps) {
+            desiredFrameRate = prefConfig.fps;
+        }
+        else {
+            // Otherwise, we will pretend that our frame rate matches the refresh rate we picked in
+            // prepareDisplayForRendering(). This will usually be the highest refresh rate that our
+            // frame rate evenly divides into, which ensures the lowest possible display latency.
+            desiredFrameRate = desiredRefreshRate;
+        }
+
+        // Tell the OS about our frame rate to allow it to adapt the display refresh rate appropriately
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // We want to change frame rate even if it's not seamless, since prepareDisplayForRendering()
+            // will not set the display mode on S+ if it only differs by the refresh rate. It depends
+            // on us to trigger the frame rate switch here.
+            holder.getSurface().setFrameRate(desiredFrameRate,
+                    Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
+                    Surface.CHANGE_FRAME_RATE_ALWAYS);
+        }
+        else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            holder.getSurface().setFrameRate(desiredFrameRate,
+                    Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
         }
     }
 
@@ -2133,8 +2222,13 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     }
 
     @Override
-    public void mouseScroll(byte amount) {
+    public void mouseVScroll(byte amount) {
         conn.sendMouseScroll(amount);
+    }
+
+    @Override
+    public void mouseHScroll(byte amount) {
+        conn.sendMouseHScroll(amount);
     }
 
     @Override
@@ -2147,10 +2241,10 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             }
 
             if (buttonDown) {
-                conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_DOWN, getModifierState());
+                conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_DOWN, getModifierState(), (byte)0);
             }
             else {
-                conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_UP, getModifierState());
+                conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_UP, getModifierState(), (byte)0);
             }
         }
     }
@@ -2209,6 +2303,8 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 return handleKeyDown(keyEvent);
             case KeyEvent.ACTION_UP:
                 return handleKeyUp(keyEvent);
+            case KeyEvent.ACTION_MULTIPLE:
+                return handleKeyMultiple(keyEvent);
             default:
                 return false;
         }
